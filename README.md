@@ -7,7 +7,7 @@
 
 [![](https://www.r-pkg.org/badges/version/CSCNet)](https://cran.r-project.org/package=CSCNet)
 [![CRAN
-checks](https://cranchecks.info/badges/summary/CSCNet)](https://cran.r-project.org/web/checks/check_results_CSCNet.html)
+checks](https://badges.cranchecks.info/summary/CSCNet.svg)](https://cran.r-project.org/web/checks/check_results_CSCNet.html)
 [![](http://cranlogs.r-pkg.org/badges/last-month/CSCNet)](https://cran.r-project.org/package=CSCNet)
 [![License: GPL (\>=
 3)](https://img.shields.io/badge/license-GPL%20(%3E=%203)-blue.svg)](https://cran.r-project.org/web/licenses/GPL-3)
@@ -39,3 +39,5 @@ devtools::install_github('Shahin-Roshani/CSCNet')
 [CRAN page](https://CRAN.R-project.org/package=CSCNet)
 
 [Deployed GitHub page](https://shahin-roshani.github.io/CSCNet/)
+
+[Bug reports](https://github.com/Shahin-Roshani/CSCNet/issues)

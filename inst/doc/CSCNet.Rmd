@@ -93,7 +93,7 @@ Like before, specification of variables and hyper-parameters are done through na
 
 While the automatic sequence of $\alpha$ values for all causes is `seq(0,1,.5)`, the process of determining the $\lambda$ values automatically is by:
 
-1. Starting from $\lambda=0$, the algorithm fits LASSO models until finding a $\lambda$ value that creates a NULL model where all variables were shrunk to be exactly 0.
+1. The algorithm fits LASSO models until finding a $\lambda$ value that creates a NULL model where all variables were shrunk to be exactly 0. The path to reach maximum $\lambda$ is specified internally by `glmnet`.
 2. The obtained $\lambda$ value will be used as the maximum value of a sequence starting from 0. The length of this sequence is controlled by values in `nlambdas.list`.
 
 This will be done for each cause-specific model to create exclusive sequences of $\lambda$s for each of them.
@@ -106,31 +106,19 @@ If the data requires pre-processing steps, it must be done within the resampling
 
 Now let's see all that was mentioned in this section in an example. Let's say we want to tune our model for 5 year absolute risk prediction of event: 1 based on time dependent (IPCW) AUC as the loss function (evaluation metric) through a 5-fold cross validation process:
 ```{r message=T, warning=F}
-#Writing a hypothetical pre-processing function
+#A pre-processing function that removes (near) zero-variance predictors
 
-library(recipes)
+library('collinear')
 
-std.fun <- function(data){
+zvr.fun <- function(data){
 
-  cont_vars <- data %>% select(where(~is.numeric(.))) %>% names
+  zv_vars <- identify_zero_variance_variables(df = data,responses = c('time','status'))
 
-  cont_vars <- cont_vars[-which(cont_vars %in% c('time','status'))]
-
-  #External functions from recipes package are being used
-
-  recipe(~.,data=data) %>%
-
-    step_center(all_of(cont_vars)) %>%
-
-    step_scale(all_of(cont_vars)) %>%
-
-    prep(training=data) %>% juice
+  return(data %>% select(-all_of(zv_vars)))
 
 }
 
-#Tuning a regularized cause-specific cox 
-
-set.seed(455) #for reproducibility
+#Tuning a regularized cause-specific Cox model
 
 tune_melanoma <- tune_penCSC(time = 'time',
                              
@@ -140,25 +128,23 @@ tune_melanoma <- tune_penCSC(time = 'time',
                              
                              data = Melanoma,
                              
-                             horizons = 365*5,
+                             horizons = 365*3,
                              
                              event = 1,
                              
                              method = 'cv',
                              
-                             k = 5,
-                             
-                             standardize = FALSE,
+                             k = 3,
                              
                              metrics = 'AUC',
                              
                              alpha.grid = list('1'=0,'2'=c(.5,1)),
                              
-                             preProc.fun = std.fun,
+                             preProc.fun = zvr.fun,
                              
                              parallel = TRUE,
                              
-                             preProc.pkgs = 'recipes')
+                             preProc.pkgs = 'collinear')
 
 tune_melanoma$validation_result %>% arrange(desc(mean.AUC)) %>% head
 

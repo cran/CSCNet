@@ -29,7 +29,7 @@
 #'@param parallel Logical indicating whether the tuning process should be performed in parallel or not. Default is \code{FALSE}.
 #'@param preProc.pkgs A character vector containing the names of packages that was used in creating user's \code{preProc.fun} while using parallel computation. Only applicable if \code{parallel=T} and \code{preProc.fun} is a user specified function using functions from other packages. See 'Examples' for details.
 #'@param preProc.globals A character vector containing names of objects included in \code{preProc.fun} to be considered as global objects while using parallel computation. The most frequent ones are the names of the user specified pre processing function or functions within this function. Only applicable if \code{parallel=T} and \code{preProc.fun} is a user specified function. See 'Examples' for details.
-#'@param core.nums Number of CPU cores to be used for parallel computation. Only applicable if \code{parallel=T}. Default is \code{future::availableCores()/2}.
+#'@param core.nums Number of CPU cores to be used for parallel computation. Only applicable if \code{parallel=T}. Default is \code{parallelly::availableCores()/2}.
 #'
 #'@return A list containing the detailed information of the hyper-parameter tuning and the validation process, best combination of hyper-parameters and the final fits based on the whole data using the best obtained hyper-parameters. Use \code{$} to explore all the involved information.
 #'
@@ -53,35 +53,23 @@
 #'
 #'al <- list('1'=0,'2'=c(.5,1))
 #'
-#'#External standardization function with data frame as its input and output
+#'#External function that removes (near) zero-variance predictors
 #'
-#'library(recipes)
+#'library('collinear')
 #'
-#'std.fun <- function(data){
+#'zvr.fun <- function(data){
 #'
-#'  cont_vars <- data %>% select(where(~is.numeric(.))) %>% names
+#'  zv_vars <- identify_zero_variance_variables(df = data,responses = c('time','status'))
 #'
-#'  cont_vars <- cont_vars[-which(cont_vars %in% c('time','status'))]
-#'
-#'  #External functions from recipes package are being used
-#'
-#'  recipe(~.,data=data) %>%
-#'
-#'    step_center(all_of(cont_vars)) %>%
-#'
-#'    step_scale(all_of(cont_vars)) %>%
-#'
-#'    prep(training=data) %>% juice
+#'  return(data %>% select(-all_of(zv_vars)))
 #'
 #'}
 #'
-#'set.seed(233)
+#'test <- tune_penCSC(time='time',status='status',vars.list=vl,data=Melanoma,horizons=1095,
 #'
-#'test <- tune_penCSC(time='time',status='status',vars.list=vl,data=Melanoma,horizons=1825,
+#'                    event=1,method='cv',k=3,metrics='AUC',alpha.grid=al,standardize=TRUE,
 #'
-#'                    event=1,method='cv',k=5,metrics='AUC',alpha.grid=al,standardize=FALSE,
-#'
-#'                    preProc.fun=std.fun,parallel=TRUE,preProc.pkgs='recipes')
+#'                    preProc.fun=zvr.fun,parallel=TRUE,preProc.pkgs='collinear')
 #'
 #'test
 #'
@@ -99,7 +87,7 @@
 #'
 #'Bengtsson H (2021). “A Unifying Framework for Parallel and Distributed Processing in R using Futures.” The R Journal, 13(2), 208–227. \doi{10.32614/RJ-2021-048}.
 #'
-#'Vaughan D, Dancho M (2022). furrr: Apply Mapping Functions in Parallel using Futures. \url{https://github.com/DavisVaughan/furrr}, \url{https://furrr.futureverse.org/}.
+#'Vaughan D, Dancho M (2022). furrr: Apply Mapping Functions in Parallel using Futures. \url{https://github.com/futureverse/furrr}, \url{https://furrr.futureverse.org/}.
 #'
 #'Therneau T (2022). A Package for Survival Analysis in R. R package version 3.3-1, \url{https://CRAN.R-project.org/package=survival}.
 #'
@@ -107,11 +95,13 @@
 #'
 #'Bache S, Wickham H (2022). magrittr: A Forward-Pipe Operator for R. \url{https://magrittr.tidyverse.org}, \url{https://github.com/tidyverse/magrittr}.
 #'
-#'@import tidyverse survival riskRegression prodlim magrittr glmnet furrr recipes
+#'@import tidyverse survival riskRegression prodlim magrittr glmnet furrr collinear
 #'
 #'@importFrom caret createDataPartition createFolds createMultiFolds createResample
 #'
-#'@importFrom future plan availableCores
+#'@importFrom future plan
+#'
+#'@importFrom parallelly availableCores
 #'
 #'@importFrom stats predict
 #'
@@ -125,13 +115,17 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
 
                         metrics='Brier',final.metric=NULL,alpha.grid=NULL,
 
-                        lambda.grid=NULL,nlambdas.list=NULL,grow.by=.01,standardize=TRUE,
+                        lambda.grid=NULL,nlambdas.list=NULL,grow.by=NULL,standardize=TRUE,
 
                         keep=NULL,preProc.fun=function(x) x,preProc.fun.test=NULL,
 
                         parallel=FALSE,preProc.pkgs=NULL,preProc.globals=NULL,
 
-                        core.nums=future::availableCores()/2){
+                        core.nums=parallelly::availableCores()/2){
+
+
+  if (!is.null(grow.by)) warning('As of version 0.1.3, grow.by has been deprecated and is scheduled for removal in a future version.',call.=FALSE)
+
 
   if (!(method %in% c('loocv','lgocv','cv','repcv','boot'))) stop('`method` must be `loocv`, `lgocv`, `cv`, `repcv` or `boot`!',call.=F)
 
@@ -162,20 +156,6 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
     stop('`preProc.fun.test` must be a function!',call.=F)
 
   }
-
-  #if (is.character(preProc.fun)){
-
-  #  if (length(preProc.fun)>1){
-
-  #    stop('Only one name of a unified pre-processing function must be given!',call.=F)
-
-  #  } else{
-
-  #    preProc.globals <- c(preProc.globals,preProc.fun)
-
-  #  }
-
-  #}
 
   if (purrr::is_empty(preProc.fun.test)) preProc.fun.test <- preProc.fun
 
@@ -218,6 +198,8 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
 
   cens.code <- codes[-which(codes %in% names(vars.list))]
 
+  if (purrr::is_empty(cens.code)) cens.code <- stats::rnorm(1)
+
   form <- stringr::str_c('Hist(',time,',',status,',cens.code=\'',cens.code,'\'',')',
 
                          format(rhs)) %>% stats::as.formula()
@@ -256,29 +238,13 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
 
     lambda_seq <- function(X,y,nlambdas){
 
-      max_lambda <- 0
-
-      range_fit <- glmnet::glmnet(x=X,y=y,family='cox',alpha=1,standardize=T) %>%
-
-        (function(x) predict(x,s=max_lambda,type='coefficients'))
-
-      while (any(range_fit[,1]!=0)){
-
-        max_lambda <- max_lambda + grow.by
-
-        range_fit <- glmnet::glmnet(x=X,y=y,family='cox',alpha=1,standardize=T) %>%
-
-          (function(x) predict(x,s=max_lambda,type='coefficients'))
-
-      }
+      max_lambda <- glmnet::glmnet(x=X,y=y,family='cox',alpha=1,standardize=T,nlambda=100)$lambda %>% max
 
       return(seq(0,max_lambda,length.out=nlambdas))
 
     }
 
-    lambda.grid <- purrr::pmap(.l=list(ymats,Xmats,nlambdas.list),
-
-                               .f=~lambda_seq(..2,..1,..3) %>% unique)
+    lambda.grid <- purrr::pmap(.l=list(ymats,Xmats,nlambdas.list),.f=~lambda_seq(..2,..1,..3))
 
   }
 
@@ -342,13 +308,14 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
     }))
 
 
+  resamples <- resampler(method)
+
+  training_list <- resamples$train_index_list %>% purrr::map(~data[.,] %>% preProc.fun)
+
+  testing_list <- resamples$test_index_list %>% purrr::map(~data[.,] %>% preProc.fun.test)
+
+
   modeling <- function(alpha_list,lambda_list,horizon){
-
-    resamples <- resampler(method)
-
-    training_list <- resamples$train_index_list %>% purrr::map(~data[.,] %>% preProc.fun)
-
-    testing_list <- resamples$test_index_list %>% purrr::map(~data[.,] %>% preProc.fun.test)
 
     purrr::pmap(.l=list(aa=training_list,bb=testing_list),
 
@@ -417,7 +384,7 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
 
       (function(x) c(x,preProc.globals)) %>% unique()
 
-    future::plan(future::multisession(),workers=core.nums)
+    future::plan(future::multisession,workers=core.nums)
 
     calc_grid %>% furrr::future_map(~modeling(.$alpha.list,.$lambda.list,.$horizon),
 
@@ -502,4 +469,3 @@ tune_penCSC <- function(time,status,vars.list,data,horizons,event,rhs=~1,
   return(tuning_results)
 
 }
-

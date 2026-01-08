@@ -1,4 +1,4 @@
-## ---- include = FALSE---------------------------------------------------------
+## ----include = FALSE----------------------------------------------------------
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = ""
@@ -40,31 +40,19 @@ predict(penfit,Melanoma[1:5,],type='response')
 predict(penfit,Melanoma[1:5,],type='absRisk',event=1,time=365*c(3,5))
 
 ## ----message=T, warning=F-----------------------------------------------------
-#Writing a hypothetical pre-processing function
+#A pre-processing function that removes (near) zero-variance predictors
 
-library(recipes)
+library('collinear')
 
-std.fun <- function(data){
+zvr.fun <- function(data){
 
-  cont_vars <- data %>% select(where(~is.numeric(.))) %>% names
+  zv_vars <- identify_zero_variance_variables(df = data,responses = c('time','status'))
 
-  cont_vars <- cont_vars[-which(cont_vars %in% c('time','status'))]
-
-  #External functions from recipes package are being used
-
-  recipe(~.,data=data) %>%
-
-    step_center(all_of(cont_vars)) %>%
-
-    step_scale(all_of(cont_vars)) %>%
-
-    prep(training=data) %>% juice
+  return(data %>% select(-all_of(zv_vars)))
 
 }
 
-#Tuning a regularized cause-specific cox 
-
-set.seed(455) #for reproducibility
+#Tuning a regularized cause-specific Cox model
 
 tune_melanoma <- tune_penCSC(time = 'time',
                              
@@ -74,25 +62,23 @@ tune_melanoma <- tune_penCSC(time = 'time',
                              
                              data = Melanoma,
                              
-                             horizons = 365*5,
+                             horizons = 365*3,
                              
                              event = 1,
                              
                              method = 'cv',
                              
-                             k = 5,
-                             
-                             standardize = FALSE,
+                             k = 3,
                              
                              metrics = 'AUC',
                              
                              alpha.grid = list('1'=0,'2'=c(.5,1)),
                              
-                             preProc.fun = std.fun,
+                             preProc.fun = zvr.fun,
                              
                              parallel = TRUE,
                              
-                             preProc.pkgs = 'recipes')
+                             preProc.pkgs = 'collinear')
 
 tune_melanoma$validation_result %>% arrange(desc(mean.AUC)) %>% head
 

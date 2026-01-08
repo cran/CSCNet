@@ -22,7 +22,7 @@ tune_penCSC(
   alpha.grid = NULL,
   lambda.grid = NULL,
   nlambdas.list = NULL,
-  grow.by = 0.01,
+  grow.by = NULL,
   standardize = TRUE,
   keep = NULL,
   preProc.fun = function(x) x,
@@ -30,7 +30,7 @@ tune_penCSC(
   parallel = FALSE,
   preProc.pkgs = NULL,
   preProc.globals = NULL,
-  core.nums = future::availableCores()/2
+  core.nums = parallelly::availableCores()/2
 )
 }
 \arguments{
@@ -84,7 +84,7 @@ tune_penCSC(
 
 \item{preProc.globals}{A character vector containing names of objects included in \code{preProc.fun} to be considered as global objects while using parallel computation. The most frequent ones are the names of the user specified pre processing function or functions within this function. Only applicable if \code{parallel=T} and \code{preProc.fun} is a user specified function. See 'Examples' for details.}
 
-\item{core.nums}{Number of CPU cores to be used for parallel computation. Only applicable if \code{parallel=T}. Default is \code{future::availableCores()/2}.}
+\item{core.nums}{Number of CPU cores to be used for parallel computation. Only applicable if \code{parallel=T}. Default is \code{parallelly::availableCores()/2}.}
 }
 \value{
 A list containing the detailed information of the hyper-parameter tuning and the validation process, best combination of hyper-parameters and the final fits based on the whole data using the best obtained hyper-parameters. Use \code{$} to explore all the involved information.
@@ -114,35 +114,23 @@ vl <- list('1'=~age+sex+epicel+ici,
 
 al <- list('1'=0,'2'=c(.5,1))
 
-#External standardization function with data frame as its input and output
+#External function that removes (near) zero-variance predictors
 
-library(recipes)
+library('collinear')
 
-std.fun <- function(data){
+zvr.fun <- function(data){
 
- cont_vars <- data \%>\% select(where(~is.numeric(.))) \%>\% names
+ zv_vars <- identify_zero_variance_variables(df = data,responses = c('time','status'))
 
- cont_vars <- cont_vars[-which(cont_vars \%in\% c('time','status'))]
-
- #External functions from recipes package are being used
-
- recipe(~.,data=data) \%>\%
-
-   step_center(all_of(cont_vars)) \%>\%
-
-   step_scale(all_of(cont_vars)) \%>\%
-
-   prep(training=data) \%>\% juice
+ return(data \%>\% select(-all_of(zv_vars)))
 
 }
 
-set.seed(233)
+test <- tune_penCSC(time='time',status='status',vars.list=vl,data=Melanoma,horizons=1095,
 
-test <- tune_penCSC(time='time',status='status',vars.list=vl,data=Melanoma,horizons=1825,
+                   event=1,method='cv',k=3,metrics='AUC',alpha.grid=al,standardize=TRUE,
 
-                   event=1,method='cv',k=5,metrics='AUC',alpha.grid=al,standardize=FALSE,
-
-                   preProc.fun=std.fun,parallel=TRUE,preProc.pkgs='recipes')
+                   preProc.fun=zvr.fun,parallel=TRUE,preProc.pkgs='collinear')
 
 test
 
@@ -162,7 +150,7 @@ Kuhn, M. (2008). Building Predictive Models in R Using the caret Package. Journa
 
 Bengtsson H (2021). “A Unifying Framework for Parallel and Distributed Processing in R using Futures.” The R Journal, 13(2), 208–227. \doi{10.32614/RJ-2021-048}.
 
-Vaughan D, Dancho M (2022). furrr: Apply Mapping Functions in Parallel using Futures. \url{https://github.com/DavisVaughan/furrr}, \url{https://furrr.futureverse.org/}.
+Vaughan D, Dancho M (2022). furrr: Apply Mapping Functions in Parallel using Futures. \url{https://github.com/futureverse/furrr}, \url{https://furrr.futureverse.org/}.
 
 Therneau T (2022). A Package for Survival Analysis in R. R package version 3.3-1, \url{https://CRAN.R-project.org/package=survival}.
 
